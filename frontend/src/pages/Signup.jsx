@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { UserPlus } from 'lucide-react'
+import { authService } from '../services/auth'
 
 function Signup({ setAuth }) {
   const navigate = useNavigate()
@@ -30,17 +31,24 @@ function Signup({ setAuth }) {
 
     setLoading(true)
 
-    // Mock inscription (à remplacer par API plus tard)
-    setTimeout(() => {
-      localStorage.setItem('token', 'mock-jwt-token')
-      localStorage.setItem('user', JSON.stringify({ 
-        email: formData.email, 
-        name: formData.fullName 
-      }))
+    try {
+      const response = await authService.signup({
+        email: formData.email,
+        password: formData.password,
+        full_name: formData.fullName
+      })
+      
+      // Sauvegarder le token et les infos utilisateur
+      localStorage.setItem('token', response.access_token)
+      localStorage.setItem('user', JSON.stringify(response.user))
+      
       setAuth(true)
       navigate('/dashboard')
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Erreur lors de l\'inscription')
+    } finally {
       setLoading(false)
-    }, 800)
+    }
   }
 
   const handleChange = (e) => {
