@@ -205,3 +205,82 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ============================================
+# Bill'z - Spécifique au projet
+# ============================================
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Frontend build
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/out/
+frontend/.vite/
+frontend/.turbo/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+database/data/
+pgdata/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+*.log
+
+# Uploads / Fichiers temporaires
+uploads/
+temp/
+tmp/
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.gif
+!frontend/public/**
+!frontend/src/assets/**
+
+# API Keys & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tests
+.coverage
+htmlcov/
+.pytest_cache/
+coverage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
