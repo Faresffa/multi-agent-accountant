@@ -1,7 +1,7 @@
 import json
-from utils_banque import lire_xlsx_en_liste_de_dicos, read_file
+from Agent_banque.utils_banque import lire_xlsx_en_liste_de_dicos, read_file
 from groq import Groq
-from config_banque import GROQ_API_KEY, MODEL_NAME_analyse
+from Agent_banque.config_banque import GROQ_API_KEY, MODEL_NAME_analyse
 
 
 def load_prompt_and_context(invoice_json, releve_bancaire, context_file, prompt_file) -> tuple[str, str]:
@@ -58,45 +58,54 @@ def rapprochement(invoice_json, releve_bancaire, context_file, prompt_file) -> d
 def afficher_rapprochement(resultat):
 
     facture = resultat.get("facture", {})
+    invoice_type = facture.get("invoice_type")
 
-    print("\n=== RAPPROCHEMENT ===")
+    print("\n=== 🔄 RAPPROCHEMENT BANCAIRE ===\n")
 
-    print("\n📄 Facture")
+    print("📄 Facture analysée")
     print(f"  • Fournisseur : {facture.get('fournisseur')}")
-    print(f"  • Montant TTC : {facture.get('montant_ttc')} {facture.get('devise')}")
-    print(f"  • Date : {facture.get('date')}")
+    print(f"  • Montant TTC : {facture.get('montant_ttc')}")
+    print(f"  • Date facture : {facture.get('date')}")
+    print(f"  • Type : {invoice_type if invoice_type else 'Inconnu'}\n")
 
-    print("\n🔎 Correspondance trouvée :", resultat.get("correspondance_trouvee"))
+    print(f"🔎 Correspondance trouvée : {resultat.get('correspondance_trouvee')}\n")
 
-    print("\n📌 Lignes correspondantes :")
+    print("📌 Lignes correspondantes :")
     lignes = resultat.get("lignes_correspondantes", [])
 
     if lignes:
         for i, ligne in enumerate(lignes, 1):
             print(f"\n   —— Ligne {i} ——")
-            print(f"   • Date relevé : {ligne.get('date')}")
-            print(f"   • Montant : {ligne.get('amount')} {ligne.get('currency')}")
-            print(f"   • Vendor : {ligne.get('vendor')}")
+            print(f"   • Date relevé      : {ligne.get('date')}")
+            print(f"   • Montant relevé   : {ligne.get('amount')}")
+            print(f"   • Vendor           : {ligne.get('vendor')}")
             print(f"   • Similarité fournisseur : {ligne.get('similarite_fournisseur')}")
-            print(f"   • Différences : {', '.join(ligne.get('differences', []))}")
+
+            print("   • Différences :")
+            diffs = ligne.get("differences", [])
+            if diffs:
+                for d in diffs:
+                    print(f"       - {d}")
+            else:
+                print("       Aucune différence notable.")
 
             details = ligne.get("details_differences", {})
-            print("   • Détails des différences :")
+            print("\n   • Détails des différences :")
             print(f"       - Montant facture : {details.get('montant_facture')}")
-            print(f"       - Montant relevé : {details.get('montant_releve')}")
-            print(f"       - Écart montant : {details.get('ecart_montant')}")
-            print(f"       - Devise facture : {details.get('devise_facture')}")
-            print(f"       - Devise relevé : {details.get('devise_releve')}")
-            print(f"       - Date facture : {details.get('date_facture')}")
-            print(f"       - Date relevé : {details.get('date_releve')}")
-            print(f"   • Niveau de confiance : {ligne.get('niveau_confiance')}")
+            print(f"       - Montant relevé  : {details.get('montant_releve')}")
+            print(f"       - Écart montant   : {details.get('ecart_montant')}")
+            print(f"       - Date facture    : {details.get('date_facture')}")
+            print(f"       - Date relevé     : {details.get('date_releve')}")
+            print(f"       - Écart en jours  : {details.get('ecart_jours')}")
+
+            print(f"\n   • Niveau de confiance : {ligne.get('niveau_confiance')}\n")
 
     else:
-        print("   Aucune ligne correspondante.")
+        print("   Aucune ligne correspondante.\n")
 
-    print("\n🏁 Conclusion :")
-    print(" ", resultat.get("conclusion"))
-    print("\n")
+    print("🏁 Conclusion :")
+    print(f"  {resultat.get('conclusion')}\n")
+
 
 
 
