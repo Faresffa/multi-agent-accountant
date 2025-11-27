@@ -10,8 +10,12 @@ from app.api import auth, invoices
 from app.models import User, Invoice  # Import pour créer les tables
 
 # Créer les tables PostgreSQL
-Base.metadata.create_all(bind=engine)
-print("✅ PostgreSQL database connected and tables created!")
+try:
+    Base.metadata.create_all(bind=engine)
+    print("✅ PostgreSQL database connected and tables created!")
+except Exception as e:
+    print(f"⚠️ Warning: Could not connect to PostgreSQL: {e}")
+    print("⚠️ The API will start but database operations will fail.")
 
 # Application FastAPI
 app = FastAPI(

@@ -14,7 +14,7 @@ from app.api.auth import get_current_user
 from app.models.user import User
 from app.models.invoice import Invoice
 from app.schemas.invoice import InvoiceResponse
-from app.services.agent_runner import run_invoice_agent
+from app.services.invoice_scanner import InvoiceScanner
 
 router = APIRouter()
 
@@ -184,31 +184,33 @@ async def delete_invoice(
     return None
 
 
+def _scan_invoices_task(user_id: int, db: Session):
+    """Tâche de scan en arrière-plan"""
+    try:
+        scanner = InvoiceScanner(user_id=user_id, db=db)
+        stats = scanner.scan_and_process(max_emails=50)
+        print(f"\n[SCAN COMPLETE] Stats: {stats}")
+    except Exception as e:
+        print(f"[SCAN ERROR] {e}")
+    finally:
+        db.close()
+
+
 @router.post("/scan")
 async def scan_gmail_invoices(
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Lance l'agent facture pour scanner Gmail et extraire les factures
+    Lance le scan Gmail pour extraire les factures
+    Le scan s'exécute en arrière-plan pour ne pas bloquer le serveur
     """
-    from app.core.security import create_access_token
-    
-    # Générer un token pour l'agent
-    token = create_access_token(data={"sub": current_user.email})
-    
-    # Lancer l'agent
-    result = run_invoice_agent(user_token=token)
-    
-    if not result["success"]:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "Erreur lors de l'exécution de l'agent")
-        )
+    # Lancer le scan en arrière-plan
+    background_tasks.add_task(_scan_invoices_task, current_user.id, db)
     
     return {
-        "message": "Scan terminé",
-        "invoices_processed": result["invoices_processed"],
-        "invoices_uploaded": result["invoices_uploaded"]
+        "message": "Scan Gmail lancé en arrière-plan. Les factures apparaîtront progressivement.",
+        "status": "processing"
     }
 

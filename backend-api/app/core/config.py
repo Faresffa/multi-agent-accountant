@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     
+    # Supabase
+    SUPABASE_URL: str
+    SUPABASE_SERVICE_KEY: str
+    
+    # Groq API
+    GROQ_API_KEY: str
+    MODEL_NAME_analyse: str
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
