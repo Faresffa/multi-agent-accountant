@@ -1,0 +1,37 @@
+Voici la liste des factures normalisées :
+
+### FACTURES
+{{factures_json}}
+
+Voici la liste des rapprochements bancaires normalisés :
+
+### RAPPROCHEMENTS
+{{rapprochements_json}}
+
+Analyse ces données et génère :
+
+1. Les statistiques globales, incluant notamment :
+   - le nombre total de factures,
+   - le nombre de factures reçues et envoyées (selon invoice_type),
+   - le total des montants,
+   - le total rapproché et non rapproché,
+   - le taux de rapprochement,
+   - le nombre de fournisseurs distincts.
+
+2. Les listes de factures rapprochées et non rapprochées.
+
+3. L'analyse détaillée par fournisseur :
+   - nombre de factures,
+   - total des dépenses,
+   - moyenne,
+   - facture la plus élevée,
+   - anomalies regroupées sans doublons.
+
+4. Les anomalies détectées au niveau global, en français uniquement et dédupliquées.
+
+5. Les optimisations et recommandations financières (phrases courtes et utiles).
+
+6. Un résumé final clair en une phrase en français.
+
+Respecte strictement le format JSON défini dans le contexte système.
+Ne génère aucun texte en dehors du JSON final.

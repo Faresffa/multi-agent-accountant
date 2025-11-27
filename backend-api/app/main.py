@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import auth, invoices, transactions
+from app.api import auth, invoices, transactions, optimisation
 from app.models import User, Invoice, Transaction  # Import pour créer les tables
 
 # Créer les tables PostgreSQL
@@ -38,6 +38,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(invoices.router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(transactions.router, prefix="/api/transactions", tags=["Transactions"])
+app.include_router(optimisation.router, prefix="/api/optimisation", tags=["Optimisation"])
 
 
 @app.get("/")

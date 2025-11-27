@@ -14,6 +14,8 @@ function Factures({ setAuth }) {
   const [showReconciliationModal, setShowReconciliationModal] = useState(false);
   const [reconciliationResult, setReconciliationResult] = useState(null);
   const [reconcilingInvoiceId, setReconcilingInvoiceId] = useState(null);
+  const [reconcilingAll, setReconcilingAll] = useState(false);
+  const [reconcileAllResult, setReconcileAllResult] = useState(null);
 
   useEffect(() => {
     loadInvoices();
@@ -147,6 +149,29 @@ function Factures({ setAuth }) {
     }
   };
 
+  const reconcileAllInvoices = async () => {
+    if (!confirm('Lancer le rapprochement automatique pour toutes les factures ?\n\nLes correspondances avec une confiance ≥ 90% seront confirmées automatiquement.')) {
+      return;
+    }
+
+    try {
+      setReconcilingAll(true);
+      setReconcileAllResult(null);
+      const response = await api.post('/api/transactions/reconcile-all');
+      setReconcileAllResult(response.data);
+      
+      // Recharger les factures
+      await loadInvoices();
+      
+      alert(`✓ Rapprochement automatique terminé !\n\n${response.data.stats.auto_confirmed} rapprochement(s) confirmé(s)\n${response.data.stats.manual_review} nécessitent une revue manuelle`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Erreur lors du rapprochement automatique');
+      console.error(err);
+    } finally {
+      setReconcilingAll(false);
+    }
+  };
+
   return (
     <DashboardLayout setAuth={setAuth}>
       <div className="space-y-6">
@@ -158,6 +183,14 @@ function Factures({ setAuth }) {
             </p>
           </div>
           <div className="flex gap-3">
+            <button
+              onClick={reconcileAllInvoices}
+              className="btn-secondary flex items-center gap-2"
+              disabled={reconcilingAll || loading || invoices.length === 0}
+            >
+              <LinkIcon size={20} className={reconcilingAll ? 'animate-pulse' : ''} />
+              {reconcilingAll ? 'Rapprochement...' : 'Rapprocher tout'}
+            </button>
             <button
               onClick={scanGmailInvoices}
               className="btn-primary flex items-center gap-2"
@@ -184,6 +217,32 @@ function Factures({ setAuth }) {
               : 'bg-red-500/10 border-red-500 text-red-500'
           }`}>
             {scanResult.message}
+          </div>
+        )}
+
+        {reconcileAllResult && (
+          <div className="bg-blue-500/10 border border-blue-500 rounded-lg p-4">
+            <div className="font-semibold text-blue-400 mb-2">
+              ✓ Rapprochement automatique terminé
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <div className="text-muted-foreground">Traitées</div>
+                <div className="text-lg font-bold text-foreground">{reconcileAllResult.stats.processed}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Auto-confirmées</div>
+                <div className="text-lg font-bold text-green-500">{reconcileAllResult.stats.auto_confirmed}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Revue manuelle</div>
+                <div className="text-lg font-bold text-yellow-500">{reconcileAllResult.stats.manual_review}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Sans correspondance</div>
+                <div className="text-lg font-bold text-gray-500">{reconcileAllResult.stats.no_match}</div>
+              </div>
+            </div>
           </div>
         )}
 

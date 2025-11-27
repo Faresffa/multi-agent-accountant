@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import pandas as pd
 import io
+import json
 from datetime import datetime
 import uuid
 
@@ -164,6 +165,176 @@ async def get_transaction(
     return transaction
 
 
+@router.post("/reconcile-all")
+async def reconcile_all_invoices(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Lance le rapprochement bancaire automatique pour toutes les factures non rapprochées
+    
+    Retourne:
+    - Liste des rapprochements effectués
+    - Statistiques
+    """
+    # Récupérer toutes les factures de l'utilisateur
+    invoices = db.query(Invoice).filter(Invoice.user_id == current_user.id).all()
+    
+    if not invoices:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune facture trouvée"
+        )
+    
+    # Récupérer les transactions non rapprochées
+    transactions = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.is_reconciled == False
+    ).all()
+    
+    if not transactions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune transaction disponible pour le rapprochement"
+        )
+    
+    print(f"\n[RECONCILE ALL] Démarrage du rapprochement automatique")
+    print(f"  - {len(invoices)} factures")
+    print(f"  - {len(transactions)} transactions disponibles\n")
+    
+    service = BankReconciliationService()
+    results = []
+    stats = {
+        "total_invoices": len(invoices),
+        "processed": 0,
+        "matched": 0,
+        "auto_confirmed": 0,
+        "manual_review": 0,
+        "no_match": 0
+    }
+    
+    for invoice in invoices:
+        # Vérifier si déjà rapprochée
+        already_reconciled = db.query(Transaction).filter(
+            Transaction.user_id == current_user.id,
+            Transaction.invoice_id == invoice.id,
+            Transaction.is_reconciled == True
+        ).first()
+        
+        if already_reconciled:
+            print(f"[SKIP] Facture {invoice.id} déjà rapprochée")
+            continue
+        
+        stats["processed"] += 1
+        
+        # Préparer les données
+        invoice_data = {
+            "fournisseur": invoice.supplier.get('name') if isinstance(invoice.supplier, dict) else str(invoice.supplier),
+            "montant_ttc": invoice.amounts.get('ttc') if isinstance(invoice.amounts, dict) else 0,
+            "date": str(invoice.invoice_date),
+            "invoice_number": invoice.invoice_number
+        }
+        
+        # Récupérer les transactions non rapprochées (mise à jour à chaque itération)
+        available_transactions = db.query(Transaction).filter(
+            Transaction.user_id == current_user.id,
+            Transaction.is_reconciled == False
+        ).all()
+        
+        if not available_transactions:
+            print(f"[INFO] Plus de transactions disponibles")
+            break
+        
+        bank_transactions = [
+            {
+                "date": str(t.date),
+                "amount": t.amount,
+                "vendor": t.vendor or "",
+                "description": t.description or "",
+                "transaction_id": t.id
+            }
+            for t in available_transactions
+        ]
+        
+        # Effectuer le rapprochement
+        result = service.reconcile(
+            invoice_data=invoice_data,
+            bank_transactions=bank_transactions,
+            invoice_type="reception" if invoice.invoice_type == "entrante" else "envoi"
+        )
+        
+        if result and result.get('correspondance_trouvee'):
+            lignes = result.get('lignes_correspondantes', [])
+            if lignes:
+                # Prendre la meilleure correspondance
+                best_match = max(lignes, key=lambda x: x.get('niveau_confiance', 0))
+                confidence = best_match.get('niveau_confiance', 0)
+                
+                # Retrouver l'ID de la transaction
+                for t in available_transactions:
+                    if (str(t.date)[:7] == best_match.get('date') and 
+                        abs(t.amount - best_match.get('amount', 0)) < 0.01 and 
+                        (t.vendor or "") == best_match.get('vendor', '')):
+                        best_match['transaction_id'] = t.id
+                        break
+                
+                if 'transaction_id' in best_match:
+                    stats["matched"] += 1
+                    
+                    # Auto-confirmer si confiance >= 0.9
+                    if confidence >= 0.9:
+                        transaction = db.query(Transaction).filter(
+                            Transaction.id == best_match['transaction_id']
+                        ).first()
+                        
+                        if transaction:
+                            transaction.is_reconciled = True
+                            transaction.invoice_id = invoice.id
+                            transaction.reconciliation_confidence = confidence
+                            transaction.reconciliation_details = {
+                                "invoice_number": invoice.invoice_number,
+                                "auto_confirmed": True,
+                                "confirmed_at": str(datetime.now())
+                            }
+                            db.commit()
+                            stats["auto_confirmed"] += 1
+                            print(f"[AUTO-CONFIRM] Facture {invoice.id} ↔ Transaction {transaction.id} (confiance: {confidence:.0%})")
+                        else:
+                            stats["manual_review"] += 1
+                    else:
+                        stats["manual_review"] += 1
+                        print(f"[MANUAL] Facture {invoice.id} nécessite validation manuelle (confiance: {confidence:.0%})")
+                    
+                    results.append({
+                        "invoice_id": invoice.id,
+                        "invoice_number": invoice.invoice_number,
+                        "transaction_id": best_match.get('transaction_id'),
+                        "confidence": confidence,
+                        "auto_confirmed": confidence >= 0.9,
+                        "details": best_match
+                    })
+                else:
+                    stats["no_match"] += 1
+            else:
+                stats["no_match"] += 1
+        else:
+            stats["no_match"] += 1
+    
+    print(f"\n[RECONCILE ALL] Terminé")
+    print(f"  - Traitées: {stats['processed']}")
+    print(f"  - Correspondances: {stats['matched']}")
+    print(f"  - Auto-confirmées: {stats['auto_confirmed']}")
+    print(f"  - Revue manuelle: {stats['manual_review']}")
+    print(f"  - Aucune correspondance: {stats['no_match']}\n")
+    
+    return {
+        "success": True,
+        "message": f"{stats['auto_confirmed']} rapprochement(s) confirmé(s) automatiquement",
+        "stats": stats,
+        "results": results
+    }
+
+
 @router.post("/reconcile/{invoice_id}")
 async def reconcile_invoice(
     invoice_id: int,
@@ -236,37 +407,92 @@ async def reconcile_invoice(
             detail="Erreur lors du rapprochement"
         )
     
+    # Debug: afficher le résultat brut du LLM
+    print(f"[DEBUG] Résultat du rapprochement: {json.dumps(result, indent=2, ensure_ascii=False)}")
+    
     # Ajouter les transaction_ids aux lignes correspondantes
     if result.get('lignes_correspondantes'):
-        for ligne in result['lignes_correspondantes']:
-            # Retrouver l'ID de la transaction
-            # Le LLM retourne la date au format YYYY-MM, on doit matcher avec YYYY-MM-DD
-            ligne_date = ligne.get('date', '')  # Format YYYY-MM du LLM
-            ligne_amount = ligne.get('amount', 0)
-            ligne_vendor = ligne.get('vendor', '')
+        print(f"\n{'='*60}")
+        print(f"[RECONCILIATION] Traitement de {len(result['lignes_correspondantes'])} ligne(s)")
+        print(f"{'='*60}\n")
+        
+        for idx, ligne in enumerate(result['lignes_correspondantes']):
+            print(f"\n--- Ligne {idx + 1} ---")
+            print(f"Contenu brut: {json.dumps(ligne, indent=2, ensure_ascii=False)}")
+            
+            # Extraire les valeurs avec plusieurs variantes possibles
+            ligne_date = (
+                ligne.get('date') or 
+                ligne.get('date_releve') or 
+                ligne.get('details_differences', {}).get('date_releve') or 
+                ''
+            )
+            
+            ligne_amount = (
+                ligne.get('amount') or 
+                ligne.get('montant_releve') or 
+                ligne.get('details_differences', {}).get('montant_releve') or 
+                0
+            )
+            
+            ligne_vendor = (
+                ligne.get('vendor') or 
+                ligne.get('fournisseur') or 
+                ''
+            )
+            
+            print(f"Valeurs extraites:")
+            print(f"  - Date: '{ligne_date}'")
+            print(f"  - Amount: {ligne_amount}")
+            print(f"  - Vendor: '{ligne_vendor}'")
             
             # Chercher la transaction correspondante
+            matched = False
+            
+            # Stratégie 1: Match exact (date + montant + vendor)
             for t in transactions:
-                # Comparer le début de la date (YYYY-MM)
-                transaction_date_prefix = str(t.date)[:7]  # YYYY-MM-DD -> YYYY-MM
+                transaction_date_prefix = str(t.date)[:7] if ligne_date else str(t.date)
                 
-                # Match si date (YYYY-MM), montant et vendor correspondent
-                if (transaction_date_prefix == ligne_date and 
-                    abs(t.amount - ligne_amount) < 0.01 and  # Tolérance pour float
-                    (t.vendor or "") == ligne_vendor):
+                date_match = transaction_date_prefix == ligne_date if ligne_date else True
+                amount_match = abs(t.amount - ligne_amount) < 0.01
+                vendor_match = (t.vendor or "").strip().lower() == ligne_vendor.strip().lower()
+                
+                if date_match and amount_match and vendor_match:
                     ligne['transaction_id'] = t.id
-                    print(f"[MATCH] Transaction {t.id} matched: {t.date} / {t.amount} / {t.vendor}")
+                    matched = True
+                    print(f"✓ MATCH EXACT avec transaction {t.id}")
+                    print(f"  {t.date} | {t.amount}€ | {t.vendor}")
                     break
             
-            # Si pas trouvé, essayer un matching plus souple
-            if 'transaction_id' not in ligne:
-                print(f"[WARNING] No exact match for ligne: {ligne_date} / {ligne_amount} / {ligne_vendor}")
-                # Essayer de trouver par montant seul (moins fiable mais mieux que rien)
+            # Stratégie 2: Match par montant + date (vendor peut différer légèrement)
+            if not matched:
+                for t in transactions:
+                    transaction_date_prefix = str(t.date)[:7] if ligne_date else str(t.date)
+                    date_match = transaction_date_prefix == ligne_date if ligne_date else True
+                    amount_match = abs(t.amount - ligne_amount) < 0.01
+                    
+                    if date_match and amount_match:
+                        ligne['transaction_id'] = t.id
+                        matched = True
+                        print(f"✓ MATCH PAR DATE+MONTANT avec transaction {t.id}")
+                        print(f"  {t.date} | {t.amount}€ | {t.vendor}")
+                        break
+            
+            # Stratégie 3: Match par montant seul (dernier recours)
+            if not matched and ligne_amount != 0:
                 for t in transactions:
                     if abs(t.amount - ligne_amount) < 0.01:
                         ligne['transaction_id'] = t.id
-                        print(f"[MATCH FALLBACK] Transaction {t.id} matched by amount only")
+                        matched = True
+                        print(f"⚠ MATCH PAR MONTANT SEUL avec transaction {t.id}")
+                        print(f"  {t.date} | {t.amount}€ | {t.vendor}")
                         break
+            
+            if not matched:
+                print(f"✗ AUCUN MATCH TROUVÉ")
+                print(f"  Recherché: {ligne_date} | {ligne_amount}€ | {ligne_vendor}")
+        
+        print(f"\n{'='*60}\n")
     
     return result
 
